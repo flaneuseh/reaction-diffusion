@@ -17,14 +17,16 @@
 // (mouse click) - Print values for u and v at cell.  If in spatially-varying parameter mode, also print values for k and f at the cell.
 //
 // Custom Commands:
-// t - Set boundary condition to toroidal.
-// z - Set boundary condition to zero-derivative.
-// f - Set boundary condition to fixed.
+// t - Set boundary condition to periodic (toroidal).
+// z - Set boundary condition to dirichlet (zero-derivative).
+// f - Set boundary condition to neumann (fixed-value).
+// e - Toggle between forward Euler (default) and implicit Euler.
 
 
 // Simulation Parameters.
 float ru = 0.082;
 float rv = 0.041;
+float dt = 1;
 float f = 0;
 float k = 0;
 
@@ -44,10 +46,17 @@ boolean diffusion_only = false;                  // Whether to perform reaction-
 boolean constant_fk = true;                      // Toggle between constant f, k for each cell (true) and spatially-varying f, k (false).
 
 // Boundary condition values.
-int toroidal = 0;
-int zero_derivative = 1;
-int fixed = 2;
-int boundary_condition = toroidal;               
+int periodic = 0;
+int dirichlet = 1;
+int neumann = 2;
+int boundary = periodic;    
+
+// boundary constants for Dirichlet boundaries.
+float boundary_constant_u = .5;
+float boundary_constant_v = .5;
+
+// Forward/implicit euler.
+boolean implicit_euler = false;
 
 // Cell state.
 int curr_case = 0;                                                       // The current case - 1.
@@ -150,7 +159,60 @@ void set_fk() {
 
 // Update u and v.
 void reaction_diffusion() {
+  u_next = deep_copy(u_curr);
+  v_next = deep_copy(v_curr);
+  // diffusion
+  if (implicit_euler) {
+    implicit_euler();
+  }
+  else {
+    // forward Euler
+    for (int x = 0; x < cells_per_side; x++) {
+      for (int y = 0; y < cells_per_side; y++) {
+        u_next[x][y] = u_curr[x][y] + dt * ru * Lu(x, y);
+        v_next[x][y] = v_curr[x][y] + dt * rv * Lv(x, y);
+      }
+    }
+  }
+  if (!diffusion_only) {
+    // reaction
+    for (int x = 0; x < cells_per_side; x++) {
+      for (int y = 0; y < cells_per_side; y++) {
+        float uv2 = u_curr[x][y] * v_curr[x][y] * v_curr[x][y];
+        float reaction_u = f_curr[x][y] * (1 - u_curr[x][y]) - uv2;
+        float reaction_v = -(f_curr[x][y] + k_curr[x][y]) * v_curr[x][y] + uv2;
+        u_next[x][y] = u_next[x][y] + dt *  reaction_u;
+        v_next[x][y] = v_next[x][y] + dt * reaction_v;
+      }
+    }
+  }
   
+  u_curr = u_next;
+  v_curr = v_next;
+}
+
+float Lu(int x, int y) {
+  return L(x, y, u_curr, boundary_constant_u);
+}
+
+float Lv(int x, int y) {
+  return L(x, y, v_curr, boundary_constant_v);
+}
+
+float L(int x, int y, float[][] vals, float boundary_constant) {
+  int[][] neighbors = neighbors(x, y, boundary == periodic);
+  float b = (boundary == neumann)? 0 : boundary_constant;
+  float sum = 0;
+  for (int i = 0; i < neighbors.length; i++) {
+    int xx = neighbors[i][0];
+    int yy = neighbors[i][1];
+    sum += vals[xx][yy];
+  }
+  return sum - neighbors.length * vals[x][y];
+}
+
+void implicit_euler() {
+  // TODO
 }
 
 float[][] deep_copy(float[][] original) {
@@ -163,12 +225,12 @@ float[][] deep_copy(float[][] original) {
   return copy;
 }
 
-// Get the toroidal 8-neighbors of cell x, y.
-int[][] get_toroidal_neighbors(int x, int y) {
-  int[][] neighbors = new int[8][2];
+// Get the toroidal 4-neighbors of cell x, y.
+int[][] neighbors(int x, int y, boolean toroidal) {
+  int[][] possible_neighbors = new int[4][2]; // Depending on the boundary condition, there may be < 4 neighbors.
   int n = 0;
   for (int xn = -1; xn <= 1; xn++) {
-    for (int yn = -1; yn <= 1; yn++, n++) {
+    for (int yn = -1; yn <= 1; yn++) {
       if (abs(xn) == abs(yn)) {
         // if xn == yn == 0, it is the original cell.
         // if both xn and yn are either 1 or -1, then it is a diagonal neighbor.
@@ -178,8 +240,17 @@ int[][] get_toroidal_neighbors(int x, int y) {
       int xx = (x + xn + cells_per_side) % cells_per_side;
       int yy = (y + yn + cells_per_side) % cells_per_side;
       
-      neighbors[n] = new int[]{xx, yy};
+      if (toroidal || (abs(xx - x) == 1 && abs(yy - y) == 1)) {
+        // if xx - x != 1 or yy - y != 1, then the neighbor is toroidally wrapped.
+        possible_neighbors[n] = new int[]{xx, yy};
+        n++;
+      }
     }
+  }
+  
+  int[][] neighbors = new int[n][2];
+  for (int i = 0; i < n; i++) {
+    neighbors[i] = possible_neighbors[i];
   }
   
   return neighbors;
@@ -303,19 +374,24 @@ void keyPressed() {
       set_case(Character.getNumericValue(key) - 1);
       break;
     case ('t'):
-      // Set boundary condition to toroidal.
-      println("Set boundaries to toroidal.");
-      boundary_condition = toroidal;
+      // Set boundary condition to periodic (toroidal).
+      println("Set boundaries to periodic (toroidal).");
+      boundary = periodic;
       break;
     case ('z'):
-      // Set boundary condition to zero-derivative.
-      println("Set boundaries to zero-derivative.");
-      boundary_condition = zero_derivative;
+      // Set boundary condition to dirichlet (zero-derivative).
+      println("Set boundaries to dirichlet (zero-derivative).");
+      boundary = dirichlet;
       break;
     case ('f'):
-      // Set boundary condition to fixed.
-      println("Set boundaries to fixed.");
-      boundary_condition = fixed;
+      // Set boundary condition to neumann (fixed-value).
+      println("Set boundaries to neumann (fixed-value).");
+      boundary = neumann;
+      break;
+    case ('e'):
+      // Toggle between forward Euler and implicit Euler.
+      println("Use " + (!implicit_euler? "implicit" : "forward") + " Euler."); 
+      implicit_euler = !implicit_euler;
       break;
     default:
       break;
