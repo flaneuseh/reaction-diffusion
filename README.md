@@ -24,5 +24,5 @@ An implementation in Processing by Kaylah Facey.
 * t - Set boundary condition to periodic (toroidal, default).
 * z - Set boundary condition to dirichlet (fixed-value).
 * f - Set boundary condition to neumann (zero-derivative).
-* >/. - Increase dt by .1 (up to 3; default 1)
+* \>/. - Increase dt by .1 (up to 3; default 1)
 * </, - Decrease dt by .1 (down to .1; default 1)
