@@ -9,18 +9,23 @@
 // u - At each timestep, draw values for u at each cell (default).
 // v - At each timestep, draw values for v at each cell (rather than u).
 // d - Toggle between performing diffusion alone or reaction-diffusion (reaction-diffusion is default).
-// p - Toggle between constant f, k for each cell (default) and spatially-varying f, k.
-// 1 - Set parameters for spots (k = 0.0625, f = 0.035)
-// 2 - Set parameters for stripes (k = 0.06, f = 0.035)
-// 3 - Set parameters for spiral waves (k = 0.0475, f = 0.0118)
-// 4 - Set parameters for a custom pattern (k = , f = )
+// p/0 - Toggle between constant f, k for each cell (default) and spatially-varying f, k.
+// 1 - Set parameters for spots (f = 0.035, k = 0.0625)
+// 2 - Set parameters for stripes (f = 0.035, k = 0.06)
+// 3 - Set parameters for spiral waves (f = 0.0118, k = 0.0475)
+// 4-7 - Set parameters for custom patterns:
+//   4 - concentric squares (f = .0271, k = .0557)
+//   5 - flower (f = .0624, k = .0614)
+//   6 - blinking spots (f = .0140, k = .0503)
+//   7 - disappearing spots (f = .0108, k = .0531)
 // (mouse click) - Print values for u and v at cell.  If in spatially-varying parameter mode, also print values for k and f at the cell.
 //
 // Custom Commands:
-// t - Set boundary condition to periodic (toroidal).
-// z - Set boundary condition to dirichlet (zero-derivative).
-// f - Set boundary condition to neumann (fixed-value).
-// e - Toggle between forward Euler (default) and implicit Euler.
+// t - Set boundary condition to periodic (toroidal, default).
+// z - Set boundary condition to dirichlet (fixed-value).
+// f - Set boundary condition to neumann (zero-derivative).
+// >/. - Increase dt by .1 (up to 3; default 1)
+// </, - Decrease dt by .1 (down to .1; default 1)
 
 
 // Simulation Parameters.
@@ -30,8 +35,10 @@ float dt = 1;
 float f = 0;
 float k = 0;
 
-float[] f_case = new float[]{.035, .035, .0118, 0};
-float[] k_case = new float[]{.0625, .06, .0475, 0};
+String[] desc = new String[]{"spots", "stripes", "spiral waves", "custom - flower", 
+                             "custom - honeycomb", "custom - blinking spots", "custom - disappearing spots"};
+float[] f_case = new float[]{.035, .035, .0118, .0271, .0624, .0140, .0108};
+float[] k_case = new float[]{.0625, .06, .0475, .0557, .0614, .0503, .0531};                             
 
 // Colours.
 color red = color(255, 0, 0);
@@ -52,8 +59,8 @@ int neumann = 2;
 int boundary = periodic;    
 
 // boundary constants for Dirichlet boundaries.
-float boundary_constant_u = .5;
-float boundary_constant_v = .5;
+float boundary_constant_u = 1;
+float boundary_constant_v = 0;
 
 // Forward/implicit euler.
 boolean implicit_euler = false;
@@ -84,7 +91,6 @@ void setup() {
 
 // Update parameters for a new case.
 void set_case(int new_case) {
-  println("Set case to " + (new_case + 1) + ".");
   curr_case = new_case;
   f = f_case[curr_case];
   k = k_case[curr_case];
@@ -101,17 +107,28 @@ void initialize() {
   max_u = 1;
   min_v = 0;
   max_v = 0;
-  println("(Re)Initialize");
+  println("(Re)Initialize to case " + (curr_case + 1) + " (" + desc[curr_case] + ").");
   println("  Stop.");
   println("  Drawing u.");
   println("  Simulating reaction-diffusion.");
   println("  Using constant f, k:");
   println("    f = " + f);
   println("    k = " + k);
+  print("  Boundary condition ");
+  if (boundary == periodic) {
+    println("periodic (toroidal).");
+  }
+  else if (boundary == neumann) {
+    println("neumann (zero-derivative).");
+  }
+  else { // boundary == dirichlet
+    println("dirichlet (fixed-value u = " + boundary_constant_u + ", v = " + boundary_constant_v + ").");
+  }
+  println("  dt = " + dt);
   for (int x = 0; x < cells_per_side; x++) {
     for (int y = 0; y < cells_per_side; y++) {
-      u_curr[x][y] = 1;
-      v_curr[x][y] = 0;
+      u_curr[x][y] = 1 + random(-.05, .05);
+      v_curr[x][y] = 0 + random(-.05, .05);
     }
   }
   
@@ -201,14 +218,20 @@ float Lv(int x, int y) {
 
 float L(int x, int y, float[][] vals, float boundary_constant) {
   int[][] neighbors = neighbors(x, y, boundary == periodic);
-  float b = (boundary == neumann)? 0 : boundary_constant;
   float sum = 0;
   for (int i = 0; i < neighbors.length; i++) {
     int xx = neighbors[i][0];
     int yy = neighbors[i][1];
     sum += vals[xx][yy];
   }
-  return sum - neighbors.length * vals[x][y];
+  if (boundary == neumann) {
+    // Ignore neighbors that don't exist
+    return sum - neighbors.length * vals[x][y] ;
+  }
+  // If toroidal, neighbors.length is always 4.
+  // If dirichlet, neighbors that don't exist are assigned a constant value.
+  sum += boundary_constant * (4 - neighbors.length);
+  return sum - 4 * vals[x][y] ;
 }
 
 void implicit_euler() {
@@ -240,7 +263,7 @@ int[][] neighbors(int x, int y, boolean toroidal) {
       int xx = (x + xn + cells_per_side) % cells_per_side;
       int yy = (y + yn + cells_per_side) % cells_per_side;
       
-      if (toroidal || (abs(xx - x) == 1 && abs(yy - y) == 1)) {
+      if (toroidal || ((abs(xx - x) == 1 || abs(xx - x) == 0) && (abs(yy - y) == 1 || abs(yy-y) == 0))) {
         // if xx - x != 1 or yy - y != 1, then the neighbor is toroidally wrapped.
         possible_neighbors[n] = new int[]{xx, yy};
         n++;
@@ -351,6 +374,7 @@ void keyPressed() {
       println("Set simulation to " + (!diffusion_only? "diffusion only" : "reaction-diffusion") + "."); 
       diffusion_only = !diffusion_only;
       break;
+    case ('0'):
     case ('p'):
       // Toggle between constant f, k for each cell and spatially-varying f, k.
       println("Set f, k to " + (!constant_fk? "constant: " : "varying.")); 
@@ -368,7 +392,13 @@ void keyPressed() {
     case ('3'):
       // Spiral waves.
     case ('4'):
-      // Custom pattern.
+      // Custom - flower
+    case ('5'):
+      // Custom - mesh.
+    case ('6'):
+      // Custom - blinking spots.
+    case ('7'):
+      // Custom - disappearing spots.
       
       // Change case.
       set_case(Character.getNumericValue(key) - 1);
@@ -378,20 +408,32 @@ void keyPressed() {
       println("Set boundaries to periodic (toroidal).");
       boundary = periodic;
       break;
-    case ('z'):
-      // Set boundary condition to dirichlet (zero-derivative).
-      println("Set boundaries to dirichlet (zero-derivative).");
+    case ('f'):
+      // Set boundary condition to dirichlet (fixed-value).
+      println("Set boundaries to dirichlet (fixed-value u = " + boundary_constant_u + ", v = " + boundary_constant_v + ").");
       boundary = dirichlet;
       break;
-    case ('f'):
-      // Set boundary condition to neumann (fixed-value).
-      println("Set boundaries to neumann (fixed-value).");
+    case ('z'):
+      // Set boundary condition to neumann (zero-derivative).
+      println("Set boundaries to neumann (zero-derivative).");
       boundary = neumann;
       break;
     case ('e'):
       // Toggle between forward Euler and implicit Euler.
       println("Use " + (!implicit_euler? "implicit" : "forward") + " Euler."); 
       implicit_euler = !implicit_euler;
+      break;
+    case ('>'):
+    case ('.'):
+      // Increase dt by .1 (up to 3; default 1)
+      dt = min(dt + .1, 3);
+      println("dt = " + dt);
+      break;
+    case ('<'):
+    case (','):
+      // Decrease dt by .1 (down to .1; default 1)
+      dt = max(dt - .1, .1);
+      println("dt = " + dt);
       break;
     default:
       break;
